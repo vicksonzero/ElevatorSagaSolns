@@ -1,8 +1,17 @@
 {
     init: function(elevators, floors) {
         // Whenever the elevator is idle (has no more queued destinations) ...
+        
+        // common init
+        elevators.forEach(function(elevator){
+            elevator.favoriteFloor = [];
+        });
+        elevators[0].favoriteFloor.push(0);
+        elevators[1].favoriteFloor.push(1);
+        elevators[2].favoriteFloor.push(2);
+
         [
-            elevators[0]
+            
         ]
         .forEach(function(elevator){
             elevator.on("idle", function() {
@@ -20,6 +29,7 @@
             })
         });
         [
+            elevators[0],
             elevators[1],
             elevators[2]
         ]
@@ -32,7 +42,11 @@
             })
             floors.forEach(function(floor){
                 floor.on("down_button_pressed", function() {
-                    elevator.goToFloor(floor.floorNum());
+                    if(elevator.loadFactor()<1){
+                        if(elevator.favoriteFloor.indexOf(floor.floorNum())!=-1){
+                            elevator.goToFloor(floor.floorNum());
+                        }
+                    }
                 });
             });
             
