@@ -1,87 +1,159 @@
 {
-    init: function(elevators, floors) {
-        // Whenever the elevator is idle (has no more queued destinations) ...
-        
-        // common init
-        elevators.forEach(function(elevator){
-            elevator.favoriteFloor = [];
-            elevator.dirCode = 1;
-            elevator.peopleWaiting = [];
-            floors
-            .sort(function(a,b){return a.floorNum()-b.floorNum();})
-            .forEach(function(floor){
-                elevator.peopleWaiting.push({fid:floor.floorNum(),cnt:0});
-            });
-        });
-        
-        // individual init
-        elevators[0].favoriteFloor=[1,2,3,4,5,6,7,8,9,10,11,12];
-        elevators[1].dirCode=-1;
+	init: function(elevators, floors) {
+		// Whenever the elevator is idle (has no more queued destinations) ...
+		var overmind = {
+			masterSchedule: []
+		};
+		// common init
+		elevators.forEach(function(elevator, key){
+			elevator.id=key;
+			elevator.name=key;
+			elevator.tags = [];
+			elevator.hasTag = hasTag;
+			elevator.focused = false;
+			elevator.setFocus = setFocus;
+			elevator.on("idle", function () {
+				elevator.setFocus(false);
+			})
+			
+			// elevator.favoriteFloor = [];
+		});
+		// elevators[0].favoriteFloor=[0,1,2];
+		// elevators[1].favoriteFloor=[3,4];
+		
+		[1].forEach( function (elevatorID) { masterElevator(elevators[elevatorID]); });
+		[0].forEach( function (elevatorID) { slaveElevator(elevators[elevatorID]); });
+		
+		
+		function masterElevator(elevator) {
+			elevator.name = "master";
+			elevator.tags.push("master");
+			elevator.on("idle", function () {
+				if(!elevator.focused){
+					if(elevator.loadFactor()>0){
+						focusInside(elevator, (elevator.currentFloor() < floors.length/2?ascending:descending));
+					}else{
+						focusOutside(elevator, "down", (elevator.currentFloor() < floors.length/2?ascending:descending));
+					}
+					overmind.masterSchedule = elevator.destinationQueue;
+				}
+			})
+			
+		}
 
-        // individual event
-        [
-            elevators[1]
-        ]
-        .forEach(function(elevator){
-            elevator.on("idle", function() {
-                floors.sort(function(a,b){return b.floorNum()-a.floorNum();}).forEach(function(floor){
-                    elevator.goToFloor(floor.floorNum());
-                });
-            });
-            elevator.on("floor_button_pressed", function(floorNum) {
-                // Maybe tell the elevator to go to that floor?
-            })
-            floors.forEach(function(floor){
-                floor.on("down_button_pressed", function() {
-                    elevator.peopleWaiting[floor.floorNum()].cnt++;
-                });
-            });
-        });
-        [
-            elevators[0]
-        ]
-        .forEach(function(elevator){
-            elevator.on("idle", function() {
-                elevator.goToFloor(0);
-            });
-            elevator.on("floor_button_pressed", function(floorNum) {
-                elevator.goToFloor(floorNum);
-            })
-            floors.forEach(function(floor){
-                floor.on("down_button_pressed", function() {
-                    if(elevator.loadFactor()<1){
-                        if(elevator.favoriteFloor.indexOf(floor.floorNum())!=-1){
-                            elevator.goToFloor(floor.floorNum());
-                        }
-                    }
-                });
-            });
-            
-            
-        });
-        
-        
-    },
-    update: function(dt, elevators, floors) {
-        // We normally don't need to do anything here
-        // now we do
-        //console.log(elevators[0].getPressedFloors());
-        elevators.forEach(function(elevator){
-            if(elevator.loadFactor()>0.7){// quite full
-                gotoPressedFloors(elevator);
-            }
-            
-            
-        });
-        function gotoPressedFloors(elevator){
-            var pressedFloors = elevator.getPressedFloors().sort(function(a,b){return elevator.dirCode*(a-b);});
-            console.log("HI");
-            console.log(pressedFloors);
-            elevator.stop();
-            pressedFloors.forEach(function(floor){
-                elevator.goToFloor(floor);
-            });
-        }
-    },
+		function slaveElevator(elevator) {
+			elevator.name = "slave";
+			elevator.tags.push("slave");
+			elevator.on("idle", function () {
+				if(!elevator.focused){
+					var remainingFloors = floors.map((floor)=>floor.floorNum())
+					.filter(function (floorNum) {
+						return overmind.masterSchedule.indexOf(floorNum)<0;
+					})
+					// console.log(remainingFloors);
 
+					var pressedFloors = floors.filter(function (floor) {
+						return floor.buttonStates.up == "activated" || floor.buttonStates.down == "activated";
+					})
+					.map((floor)=>floor.floorNum())
+					.filter(function (floorNum) {
+						return remainingFloors.indexOf(floorNum) !=-1;
+					})
+					// console.log(pressedFloors);
+					console.log("slave TAKE MASTER");
+					pressedFloors.forEach(function (floorNum) {
+						elevator.goToFloor(floorNum);
+					})
+				}
+			});
+		}
+
+		function hasTag(tagName) {
+			return this.tags.indexOf(tagName) > -1;
+		}
+
+		function setFocus(val) {
+			this.focused = val;
+			// console.log(this.name, "is", (this.focused?"":"not"), "focused");
+		}
+		
+		function focusInside(elevator, sorting) {
+			var pressedFloors = elevator.getPressedFloors();
+			if(pressedFloors.length>0){
+				console.log("focusInside: ", elevator.id);
+				pressedFloors.sort((sorting || ascending));
+				elevator.stop();
+				pressedFloors.forEach(function (floorNum) {
+					elevator.goToFloor(floorNum);
+				})
+				console.log(elevator.name, "focus on inside");
+				elevator.setFocus(true);
+			}
+		}
+
+		function focusOutside(elevator, direction, sorting) {
+			var pressedFloors = floors.filter(function (floor) {
+				return floor.buttonStates[direction] == "activated";
+			})
+			if(pressedFloors.length>0){
+				console.log("focusOutside:", direction, elevator.id);
+				elevator.stop();
+				pressedFloors.map(function (floor) {
+					return floor.floorNum()
+				})
+				.sort((sorting || ascending))
+				.forEach(function (floorNum) {
+					elevator.goToFloor(floorNum);
+				})
+				console.log(elevator.name, "focus on outside");
+				elevator.setFocus(true);
+			}
+		}
+		
+		function ascending(a,b) {
+			return Number(a) - Number(b)
+		}
+		
+		function descending(a,b) {
+			return Number(b) - Number(a)
+		}
+		
+	},
+	update: function(dt, elevators, floors) {
+		// We normally don't need to do anything here
+		// now we do
+		elevators.filter(function (elevator) {
+			// return elevator.hasTag("master");
+			return true;
+		}).forEach(function(elevator){
+			if(!elevator.focused && elevator.loadFactor()>0.6){// quite full
+				focusInside(elevator, ascending);
+			}
+		});
+		
+		function focusInside(elevator, sorting) {
+			var pressedFloors = elevator.getPressedFloors();
+			if(pressedFloors.length>0){
+				console.log(elevator.name, "focusInside: ");
+				pressedFloors.sort((sorting || ascending));
+				elevator.stop();
+				pressedFloors.forEach(function (floorNum) {
+					elevator.goToFloor(floorNum);
+				})
+				console.log(elevator.name, "focus on inside");
+				elevator.setFocus(true);
+			}
+		}
+		
+		
+		function ascending(a,b) {
+			return Number(a) - Number(b)
+		}
+		
+		function descending(a,b) {
+			return Number(b) - Number(a)
+		}
+		
+	}
+	
 }
